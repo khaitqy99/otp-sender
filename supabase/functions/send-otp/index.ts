@@ -48,7 +48,7 @@ serve(async (req) => {
     `;
 
     const { data, error } = await resend.emails.send({
-      from: "OTP System <onboarding@resend.dev>",
+      from: "OTP System <noreply@y99.vn>",
       to: [email],
       subject: "Mã xác thực OTP của bạn",
       html: emailHtml,
