@@ -1,17 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { Resend } from "https://esm.sh/resend@4.0.0";
+
+const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Helper function to encode UTF-8 string to base64
-function utf8ToBase64(str: string): string {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(str);
-  const binary = Array.from(data, byte => String.fromCharCode(byte)).join('');
-  return btoa(binary);
-}
 
 interface SendOtpRequest {
   email: string;
@@ -31,16 +26,8 @@ serve(async (req) => {
       throw new Error("Email và OTP là bắt buộc");
     }
 
-    // Get Gmail credentials from environment
-    const gmailUser = Deno.env.get("GMAIL_USER");
-    const gmailAppPassword = Deno.env.get("GMAIL_APP_PASSWORD");
-
-    if (!gmailUser || !gmailAppPassword) {
-      throw new Error("Chưa cấu hình Gmail. Vui lòng thêm GMAIL_USER và GMAIL_APP_PASSWORD trong Secrets.");
-    }
-
-    // Send email using Gmail SMTP
-    const emailBody = `
+    // Send email using Resend
+    const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); padding: 30px; border-radius: 10px; text-align: center;">
           <h1 style="color: white; margin: 0; font-size: 28px;">Mã xác thực OTP</h1>
@@ -60,40 +47,19 @@ serve(async (req) => {
       </div>
     `;
 
-    // Create email message in RFC 2822 format
-    const message = [
-      `From: ${gmailUser}`,
-      `To: ${email}`,
-      `Subject: =?UTF-8?B?${utf8ToBase64("Mã xác thực OTP của bạn")}?=`,
-      `MIME-Version: 1.0`,
-      `Content-Type: text/html; charset=UTF-8`,
-      `Content-Transfer-Encoding: base64`,
-      ``,
-      utf8ToBase64(emailBody),
-    ].join("\r\n");
+    const { data, error } = await resend.emails.send({
+      from: "OTP System <onboarding@resend.dev>",
+      to: [email],
+      subject: "Mã xác thực OTP của bạn",
+      html: emailHtml,
+    });
 
-    // Send via Gmail API
-    const response = await fetch(
-      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${gmailAppPassword}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          raw: btoa(message).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Gmail API error:", response.status, errorText);
-      throw new Error(`Không thể gửi email: ${response.status} - ${errorText}`);
+    if (error) {
+      console.error("Resend API error:", error);
+      throw new Error(`Không thể gửi email: ${error.message}`);
     }
 
-    console.log(`OTP sent successfully to ${email}`);
+    console.log(`OTP sent successfully to ${email}`, data);
 
     return new Response(
       JSON.stringify({ success: true, message: "OTP đã được gửi thành công" }),
