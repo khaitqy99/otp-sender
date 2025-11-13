@@ -5,6 +5,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Helper function to encode UTF-8 string to base64
+function utf8ToBase64(str: string): string {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  const binary = Array.from(data, byte => String.fromCharCode(byte)).join('');
+  return btoa(binary);
+}
+
 interface SendOtpRequest {
   email: string;
   otp: string;
@@ -56,12 +64,12 @@ serve(async (req) => {
     const message = [
       `From: ${gmailUser}`,
       `To: ${email}`,
-      `Subject: =?UTF-8?B?${btoa("Mã xác thực OTP của bạn")}?=`,
+      `Subject: =?UTF-8?B?${utf8ToBase64("Mã xác thực OTP của bạn")}?=`,
       `MIME-Version: 1.0`,
       `Content-Type: text/html; charset=UTF-8`,
       `Content-Transfer-Encoding: base64`,
       ``,
-      btoa(emailBody),
+      utf8ToBase64(emailBody),
     ].join("\r\n");
 
     // Send via Gmail API
