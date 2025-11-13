@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Mail, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import type { OtpRecord } from "@/pages/Index";
+import type { OtpRecord } from "@/pages/Accountant";
 
 interface OtpFormProps {
   onOtpSent: (record: OtpRecord) => void;
@@ -14,6 +14,10 @@ interface OtpFormProps {
 
 export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
   const [email, setEmail] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [createdBy, setCreatedBy] = useState(() => {
+    return localStorage.getItem("accountantName") || "";
+  });
   const [isLoading, setIsLoading] = useState(false);
 
   const generateOtp = () => {
@@ -33,27 +37,61 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
 
     try {
       const { data, error } = await supabase.functions.invoke("send-otp", {
-        body: { email, otp },
+        body: { 
+          email, 
+          otp,
+          customerName: customerName.trim() || undefined, // Gửi tên khách hàng nếu có
+        },
       });
 
       if (error) throw error;
 
+      // Save to Supabase
+      const { data: dbData, error: dbError } = await supabase
+        .from("otp_records")
+        .insert({
+          email,
+          otp,
+          status: "success",
+          created_by: createdBy || null,
+        })
+        .select()
+        .single();
+
+      if (dbError) {
+        console.error("Error saving to database:", dbError);
+        // Continue anyway, don't fail the whole operation
+      }
+
       const record: OtpRecord = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: dbData?.id || 0,
         email,
         otp,
-        timestamp: new Date(),
+        timestamp: dbData?.created_at ? new Date(dbData.created_at) : new Date(),
         status: "success",
       };
 
       onOtpSent(record);
       toast.success(`Đã gửi OTP thành công đến ${email}`);
       setEmail("");
+      setCustomerName(""); // Reset tên khách hàng sau khi gửi thành công
     } catch (error: any) {
       console.error("Error sending OTP:", error);
       
+      // Still save failed records to database
+      try {
+        await supabase.from("otp_records").insert({
+          email,
+          otp,
+          status: "failed",
+          created_by: createdBy || null,
+        });
+      } catch (dbError) {
+        console.error("Error saving failed record:", dbError);
+      }
+      
       const record: OtpRecord = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: 0, // Will be updated when loaded from DB
         email,
         otp,
         timestamp: new Date(),
@@ -68,7 +106,7 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
   };
 
   return (
-    <Card className="shadow-lg border-border/50 hover:shadow-xl transition-shadow duration-300">
+    <Card className="shadow-lg border-border/50 h-full">
       <CardHeader className="space-y-3">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10">
@@ -83,6 +121,37 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-3">
+            <Label htmlFor="createdBy" className="text-base font-medium">
+              Tên kế toán
+            </Label>
+            <Input
+              id="createdBy"
+              type="text"
+              placeholder="Nhập tên của bạn"
+              value={createdBy}
+              onChange={(e) => {
+                setCreatedBy(e.target.value);
+                localStorage.setItem("accountantName", e.target.value);
+              }}
+              disabled={isLoading}
+              className="h-12 text-base focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+          <div className="space-y-3">
+            <Label htmlFor="customerName" className="text-base font-medium">
+              Tên khách hàng <span className="text-muted-foreground text-sm">(Tùy chọn)</span>
+            </Label>
+            <Input
+              id="customerName"
+              type="text"
+              placeholder="Nhập tên khách hàng"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              disabled={isLoading}
+              className="h-12 text-base focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+          <div className="space-y-3">
             <Label htmlFor="email" className="text-base font-medium">
               Email khách hàng
             </Label>
@@ -93,7 +162,7 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={isLoading}
-              className="h-12 text-base transition-all duration-200 focus:ring-2 focus:ring-primary/20"
+              className="h-12 text-base focus:ring-2 focus:ring-primary/20"
               required
             />
           </div>
@@ -101,7 +170,7 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
           <Button
             type="submit"
             disabled={isLoading}
-            className="w-full h-12 text-base font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-all duration-300 shadow-md hover:shadow-lg"
+            className="w-full h-12 text-base font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-md"
           >
             {isLoading ? (
               <>
