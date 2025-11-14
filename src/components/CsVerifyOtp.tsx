@@ -3,7 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { CheckCircle2, Loader2, UserCheck } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CheckCircle2, Loader2, UserCheck, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -27,6 +29,8 @@ export const CsVerifyOtp = () => {
   const [csName, setCsName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [verificationHistory, setVerificationHistory] = useState<OtpVerification[]>([]);
+  const [itemsToShow, setItemsToShow] = useState(5); // Số items hiển thị ban đầu
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
 
   // Load verification history from Supabase
   useEffect(() => {
@@ -55,12 +59,14 @@ export const CsVerifyOtp = () => {
   }, []);
 
   const loadHistory = async () => {
+    setIsLoadingHistory(true);
     try {
+      // Load nhiều hơn để có thể hiển thị thêm
       const { data, error } = await supabase
         .from("otp_verifications")
         .select("*")
         .order("verified_at", { ascending: false })
-        .limit(10);
+        .limit(50); // Load 50 items để có thể hiển thị thêm
 
       if (error) throw error;
 
@@ -78,6 +84,8 @@ export const CsVerifyOtp = () => {
       }
     } catch (error) {
       console.error("Error loading history:", error);
+    } finally {
+      setIsLoadingHistory(false);
     }
   };
 
@@ -281,7 +289,7 @@ export const CsVerifyOtp = () => {
             >
               {isLoading ? (
                 <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  <Loader2 className="mr-2 h-5 w-5" />
                   Đang xác thực...
                 </>
               ) : (
@@ -296,27 +304,79 @@ export const CsVerifyOtp = () => {
       </Card>
 
       {/* Verification History */}
-      {verificationHistory.length > 0 && (
-        <Card className="shadow-lg border-border/50">
-          <CardHeader className="space-y-3">
-            <CardTitle className="text-xl">Lịch sử xác thực gần đây</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-              {verificationHistory.slice(-10).reverse().map((verification) => (
-                <div
-                  key={verification.id}
-                  className="p-4 rounded-lg border bg-card"
-                >
-                  <div className="flex items-start justify-between gap-3">
+      <Card className="shadow-lg border-border/50">
+        <CardHeader className="space-y-3">
+          <CardTitle className="text-xl">Lịch sử xác thực gần đây</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoadingHistory ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="p-3 rounded-lg border bg-card">
+                  <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm text-foreground truncate">
-                        {verification.email}
+                      <Skeleton className="h-4 w-48 mb-2" />
+                      <Skeleton className="h-3 w-32" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-6 w-16" />
+                      <Skeleton className="h-7 w-7 rounded" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              ))}
+            </div>
+          ) : verificationHistory.length > 0 ? (
+            <>
+              <div className="space-y-3">
+                {verificationHistory.slice(0, itemsToShow).map((verification) => (
+                  <div
+                    key={verification.id}
+                    className="p-3 rounded-lg border bg-card"
+                  >
+                    {/* Header: Email và Status */}
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm text-foreground truncate">
+                            {verification.email}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Xác thực bởi: {verification.verifiedBy}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-sm px-2 py-1 bg-muted/30"
+                        >
+                          {verification.otp}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            navigator.clipboard.writeText(verification.otp);
+                            toast.success("Đã sao chép OTP");
+                          }}
+                          className="h-7 w-7 p-0"
+                          title="Sao chép OTP"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Thông tin chi tiết */}
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <UserCheck className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                      <p className="text-muted-foreground">
+                        <span className="font-medium">CS:</span> {verification.verifiedBy}
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Xác thực bởi: {verification.verifiedBy}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
+                      <span className="text-muted-foreground mx-1">•</span>
+                      <p className="text-muted-foreground">
                         {new Intl.DateTimeFormat("vi-VN", {
                           hour: "2-digit",
                           minute: "2-digit",
@@ -326,19 +386,40 @@ export const CsVerifyOtp = () => {
                         }).format(verification.verifiedAt)}
                       </p>
                     </div>
-                    <div className="text-right">
-                      <div className="font-mono text-sm font-semibold text-primary">
-                        {verification.otp}
-                      </div>
-                      <CheckCircle2 className="w-5 h-5 text-success mt-2" />
-                    </div>
                   </div>
+                ))}
+              </div>
+              {verificationHistory.length > itemsToShow && (
+                <div className="mt-4 pt-4 border-t border-border/50">
+                  <Button
+                    variant="outline"
+                    onClick={() => setItemsToShow((prev) => Math.min(prev + 10, verificationHistory.length))}
+                    className="w-full"
+                  >
+                    Xem thêm ({verificationHistory.length - itemsToShow} xác thực còn lại)
+                  </Button>
                 </div>
-              ))}
+              )}
+              {itemsToShow > 5 && (
+                <div className="mt-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setItemsToShow(5)}
+                    className="w-full text-xs"
+                  >
+                    Thu gọn
+                  </Button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">
+              <UserCheck className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p className="text-base">Chưa có lịch sử xác thực</p>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };

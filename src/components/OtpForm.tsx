@@ -44,9 +44,26 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
         },
       });
 
-      if (error) throw error;
+      // Kiểm tra lỗi từ Supabase function
+      if (error) {
+        throw new Error(error.message || "Lỗi khi gọi hàm gửi email");
+      }
 
-      // Save to Supabase
+      // Kiểm tra nếu response có chứa error từ Resend API
+      if (data && data.error) {
+        throw new Error(data.error);
+      }
+
+      // Kiểm tra nếu không có success flag
+      if (!data || !data.success) {
+        throw new Error(data?.error || "Không thể xác nhận email đã được gửi thành công");
+      }
+
+      // Lấy emailId an toàn (có thể null nếu Resend không trả về)
+      const emailId = data?.emailId || null;
+      console.log("Received response from send-otp:", { success: data.success, emailId, email });
+
+      // Save to Supabase với resend_email_id và customer_name
       const { data: dbData, error: dbError } = await supabase
         .from("otp_records")
         .insert({
@@ -54,6 +71,8 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
           otp,
           status: "success",
           created_by: createdBy || null,
+          resend_email_id: emailId, // Lưu email ID từ Resend để tracking (có thể null)
+          customer_name: customerName.trim() || null, // Lưu tên khách hàng nếu có
         })
         .select()
         .single();
@@ -99,7 +118,12 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
       };
       
       onOtpSent(record);
-      toast.error(error.message || "Không thể gửi OTP. Vui lòng kiểm tra cấu hình Gmail.");
+      
+      // Hiển thị thông báo lỗi chi tiết từ Resend API
+      const errorMessage = error?.message || 
+                          error?.error || 
+                          "Không thể gửi OTP. Vui lòng kiểm tra lại địa chỉ email và thử lại.";
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -139,7 +163,7 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
           </div>
           <div className="space-y-3">
             <Label htmlFor="customerName" className="text-base font-medium">
-              Tên khách hàng <span className="text-muted-foreground text-sm">(Tùy chọn)</span>
+              Tên khách hàng
             </Label>
             <Input
               id="customerName"
@@ -174,7 +198,7 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
           >
             {isLoading ? (
               <>
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                <Loader2 className="mr-2 h-5 w-5" />
                 Đang gửi...
               </>
             ) : (

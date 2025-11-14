@@ -10,11 +10,6 @@ const CsVerify = () => {
         <div>
           <CsVerifyOtp />
         </div>
-
-        {/* Footer Info */}
-        <div className="mt-16 text-center text-sm text-muted-foreground">
-          <p>🔒 Tất cả thông tin được mã hóa và bảo mật</p>
-        </div>
       </div>
     </div>
   );

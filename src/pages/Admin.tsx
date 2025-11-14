@@ -1,17 +1,29 @@
-import { useState, useEffect, useCallback } from "react";
-import { OtpForm } from "@/components/OtpForm";
-import { OtpHistory } from "@/components/OtpHistory";
+import { useState, useEffect } from "react";
 import { Navigation } from "@/components/Navigation";
-import { CheckCircle2, UserCheck, Send, Clock } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { CreateUserForm } from "@/components/CreateUserForm";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Copy, XCircle, AlertCircle } from "lucide-react";
-import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { 
+  Users, 
+  Shield, 
+  Mail, 
+  Lock, 
+  Loader2, 
+  CheckCircle2, 
+  XCircle,
+  Copy,
+  Trash2,
+  Search,
+  UserCog,
+  Send,
+  Clock,
+  UserCheck,
+  AlertCircle
+} from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -19,20 +31,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import { userService } from "@/services/user-service";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
-export interface OtpRecord {
+import type { User } from "@/services/user-service";
+
+interface OtpRecord {
   id: number;
   email: string;
   otp: string;
-  timestamp: Date;
   status: "success" | "failed";
-  expiresAt?: Date;
-  lockedAt?: Date;
-  failedAttemptsCount?: number;
-  errorCode?: string;
-  errorReason?: string;
-  hasNonPendingVerification?: boolean; // true nếu có verification với status khác "pending"
-  customerName?: string; // Tên khách hàng
+  created_at: string;
+  created_by?: string;
+  customer_name?: string;
+  error_code?: string;
+  error_reason?: string;
+  expires_at?: string;
 }
 
 interface VerifiedOtp {
@@ -52,197 +80,120 @@ interface VerifiedOtp {
   rejectedBy?: string;
   rejectedAt?: Date;
   otpRecordId?: number;
-  customerName?: string; // Tên khách hàng từ otp_records
+  customerName?: string;
 }
 
-const Accountant = () => {
-  const [otpHistory, setOtpHistory] = useState<OtpRecord[]>([]);
-  const [verifiedOtps, setVerifiedOtps] = useState<VerifiedOtp[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
-  const [isLoadingVerified, setIsLoadingVerified] = useState(true);
+const Admin = () => {
+  const [activeTab, setActiveTab] = useState("users");
+  
+  // User management state
+  const [users, setUsers] = useState<User[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [updatingRoleUserId, setUpdatingRoleUserId] = useState<number | null>(null);
+
+  // OTP management state
+  const [otpRecords, setOtpRecords] = useState<OtpRecord[]>([]);
+  const [isLoadingOtps, setIsLoadingOtps] = useState(false);
   const [searchEmail, setSearchEmail] = useState("");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // Verified OTPs state (from otp_verifications table)
+  const [verifiedOtps, setVerifiedOtps] = useState<VerifiedOtp[]>([]);
+  const [isLoadingVerified, setIsLoadingVerified] = useState(false);
+  const [searchEmailVerified, setSearchEmailVerified] = useState("");
   const [filterCombined, setFilterCombined] = useState<string>("all");
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [itemsToShow, setItemsToShow] = useState(10); // Số items hiển thị ban đầu
-  const itemsPerPage = 10; // Số items thêm mỗi lần click "Xem thêm"
-  const [accountantName, setAccountantName] = useState(() => {
-    return localStorage.getItem("accountantName") || "";
-  });
+  const [itemsToShow, setItemsToShow] = useState(10);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
-
     return () => clearInterval(interval);
   }, []);
 
-  const autoRejectExpiredOtps = useCallback(async () => {
-    try {
-      // Tự động set expired cho các verification có OTP đã hết hạn (quá 30 phút) và vẫn pending
-      const { data: expiredVerifications } = await supabase
-        .from("otp_verifications")
-        .select(`
-          *,
-          otp_records (
-            expires_at
-          )
-        `)
-        .eq("approval_status", "pending");
-
-      if (expiredVerifications) {
-        const now = new Date();
-        for (const verification of expiredVerifications) {
-          const otpRecord = (verification as any).otp_records;
-          if (otpRecord && otpRecord.expires_at) {
-            const expiresAt = new Date(otpRecord.expires_at);
-            if (expiresAt < now) {
-              await supabase
-                .from("otp_verifications")
-                .update({
-                  approval_status: "expired",
-                  rejected_by: "system",
-                  rejected_at: new Date().toISOString(),
-                })
-                .eq("id", verification.id);
-            }
-          }
-        }
-      }
-
-      // Tự động set locked cho các verification có >= 3 lần nhập sai
-      const { data: allPendingVerifications } = await supabase
-        .from("otp_verifications")
-        .select("otp_record_id")
-        .eq("approval_status", "pending");
-
-      if (allPendingVerifications) {
-        for (const verification of allPendingVerifications) {
-          const { data: failedAttempts } = await supabase
-            .from("otp_failed_attempts")
-            .select("id")
-            .eq("otp_record_id", verification.otp_record_id);
-
-          if (failedAttempts && failedAttempts.length >= 3) {
-            await supabase
-              .from("otp_verifications")
-              .update({
-                approval_status: "locked",
-                rejected_by: "system",
-                rejected_at: new Date().toISOString(),
-              })
-              .eq("otp_record_id", verification.otp_record_id)
-              .eq("approval_status", "pending");
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Error auto-rejecting expired OTPs:", error);
+  useEffect(() => {
+    if (activeTab === "users") {
+      loadUsers();
+    } else if (activeTab === "verified") {
+      loadVerifiedOtps();
     }
-  }, []);
+  }, [activeTab]);
 
-  const loadHistory = async () => {
-    setIsLoadingHistory(true);
+  const loadUsers = async () => {
+    setIsLoadingUsers(true);
+    try {
+      const users = await userService.getAll();
+      setUsers(users);
+    } catch (error: any) {
+      console.error("Error loading users:", error);
+      toast.error(error.message || "Không thể tải danh sách users");
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  };
+
+
+  const loadAllOtps = async () => {
+    setIsLoadingOtps(true);
     try {
       const { data, error } = await supabase
         .from("otp_records")
         .select("*")
         .order("created_at", { ascending: false })
-        .limit(50);
+        .limit(500); // Load 500 records gần nhất
 
       if (error) throw error;
 
       if (data) {
-        // Load verifications để kiểm tra OTP đã được xử lý chưa
-        const otpRecordIds = data.map((r: any) => r.id);
-        const { data: verificationsData, error: verificationsError } = await supabase
-          .from("otp_verifications")
-          .select("otp_record_id, approval_status, verified_at")
-          .in("otp_record_id", otpRecordIds)
-          .order("verified_at", { ascending: false });
-
-        if (verificationsError) {
-          console.error("Error loading verifications:", verificationsError);
-        }
-
-        // Tạo map để kiểm tra OTP đã có verification với status khác pending chưa
-        // Nếu có bất kỳ verification nào với status khác "pending", OTP sẽ không hiển thị
-        const hasNonPendingVerification = new Map<number, boolean>();
-        if (verificationsData && verificationsData.length > 0) {
-          console.log(`Loaded ${verificationsData.length} verifications for ${otpRecordIds.length} OTP records`);
-          verificationsData.forEach((v: any) => {
-            // Nếu có verification với status khác "pending", đánh dấu OTP này đã được xử lý
-            if (v.approval_status && v.approval_status !== "pending") {
-              hasNonPendingVerification.set(v.otp_record_id, true);
-              console.log(`Found non-pending verification for OTP record ${v.otp_record_id}: ${v.approval_status}`);
-            }
-          });
-        }
-
-        // Load failed attempts cho tất cả OTP records
-        const { data: failedAttemptsData } = await supabase
-          .from("otp_failed_attempts")
-          .select("*")
-          .in("otp_record_id", otpRecordIds)
-          .order("attempted_at", { ascending: true });
-
-        // Group failed attempts by otp_record_id
-        const failedAttemptsByRecordId = new Map<number, any[]>();
-        if (failedAttemptsData) {
-          failedAttemptsData.forEach((attempt: any) => {
-            if (!failedAttemptsByRecordId.has(attempt.otp_record_id)) {
-              failedAttemptsByRecordId.set(attempt.otp_record_id, []);
-            }
-            failedAttemptsByRecordId.get(attempt.otp_record_id)!.push(attempt);
-          });
-        }
-
-        const parsed = data
-          .map((record: any) => {
-            const failedAttempts = failedAttemptsByRecordId.get(record.id) || [];
-            const failedCount = failedAttempts.length;
-            
-            // Tìm thời gian bị khóa (lần nhập sai thứ 3)
-            let lockedAt: Date | undefined;
-            if (failedCount >= 3 && failedAttempts.length >= 3) {
-              lockedAt = new Date(failedAttempts[2].attempted_at);
-            }
-
-            const hasNonPending = hasNonPendingVerification.get(record.id) === true;
-            
-            return {
-              id: record.id,
-              email: record.email,
-              otp: record.otp,
-              timestamp: new Date(record.created_at),
-              status: record.status as "success" | "failed",
-              expiresAt: record.expires_at ? new Date(record.expires_at) : undefined,
-              lockedAt: lockedAt,
-              failedAttemptsCount: failedCount,
-              errorCode: record.error_code || undefined,
-              errorReason: record.error_reason || undefined,
-              hasNonPendingVerification: hasNonPending || false,
-              customerName: record.customer_name || undefined,
-            };
-          })
-          // Chỉ hiển thị OTP chưa có verification hoặc tất cả verifications đều pending
-          .filter((record) => {
-            // Nếu có verification với status khác "pending" (approved/rejected/expired/locked), không hiển thị
-            if (record.hasNonPendingVerification) {
-              console.log(`[FILTER] OTP ${record.id} (${record.email}) đã có verification với status khác pending, không hiển thị`);
-            } else {
-              console.log(`[FILTER] OTP ${record.id} (${record.email}) sẽ được hiển thị (chưa có verification hoặc vẫn pending)`);
-            }
-            return !record.hasNonPendingVerification;
-          });
-        
-        setOtpHistory(parsed);
+        setOtpRecords(data);
       }
-    } catch (error) {
-      console.error("Error loading history:", error);
+    } catch (error: any) {
+      console.error("Error loading OTPs:", error);
+      toast.error("Không thể tải danh sách OTP");
     } finally {
-      setIsLoadingHistory(false);
+      setIsLoadingOtps(false);
     }
+  };
+
+  const handleDeleteOtp = async (otpId: number) => {
+    setDeletingId(otpId);
+    try {
+      const { error } = await supabase
+        .from("otp_records")
+        .delete()
+        .eq("id", otpId);
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success("Đã xóa OTP khỏi database");
+      await loadAllOtps();
+    } catch (error: any) {
+      console.error("Error deleting OTP:", error);
+      toast.error("Không thể xóa OTP. Vui lòng thử lại.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const copyOtp = (otp: string) => {
+    navigator.clipboard.writeText(otp);
+    toast.success("Đã sao chép OTP");
+  };
+
+  const formatDateTime = (date: Date | string) => {
+    const dateObj = typeof date === "string" ? new Date(date) : date;
+    return new Intl.DateTimeFormat("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(dateObj);
   };
 
   const loadVerifiedOtps = async () => {
@@ -382,7 +333,7 @@ const Accountant = () => {
       const now = new Date();
       const { data: allOtpRecords } = await supabase
         .from("otp_records")
-        .select("id, email, otp, created_at, created_by, status, expires_at")
+        .select("id, email, otp, created_at, created_by, status, expires_at, customer_name")
         .not("expires_at", "is", null);
 
       if (allOtpRecords) {
@@ -544,232 +495,15 @@ const Accountant = () => {
           })
         );
         setVerifiedOtps(parsed);
+      } else {
+        setVerifiedOtps([]);
       }
-    } catch (error) {
-      console.error("Error loading verifications:", error);
+    } catch (error: any) {
+      console.error("Error loading verified OTPs:", error);
+      toast.error("Không thể tải danh sách OTP đã xác thực");
     } finally {
       setIsLoadingVerified(false);
     }
-  };
-
-  useEffect(() => {
-    // Tự động reject các OTP đã hết hạn hoặc có >= 3 lần nhập sai
-    autoRejectExpiredOtps().then(() => {
-      loadHistory();
-      loadVerifiedOtps();
-    });
-
-    // Subscribe to realtime changes for OTP records
-    const channel1 = supabase
-      .channel("otp_records_changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "otp_records",
-        },
-        (payload) => {
-          console.log("Realtime update:", payload);
-          loadHistory();
-        }
-      )
-      .subscribe();
-
-    // Subscribe to realtime changes for verifications
-    const channel2 = supabase
-      .channel("otp_verifications_changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "otp_verifications",
-        },
-        (payload) => {
-          console.log("Realtime update:", payload);
-          loadVerifiedOtps();
-          loadHistory(); // Cập nhật history khi có thay đổi verification
-        }
-      )
-      .subscribe();
-
-    // Tự động check và reject định kỳ mỗi phút
-    const interval = setInterval(() => {
-      autoRejectExpiredOtps().then(() => {
-        loadVerifiedOtps();
-      });
-    }, 60000); // 1 phút
-
-    return () => {
-      supabase.removeChannel(channel1);
-      supabase.removeChannel(channel2);
-      clearInterval(interval);
-    };
-  }, [autoRejectExpiredOtps]);
-
-  const handleOtpSent = (record: OtpRecord) => {
-    // Realtime will update automatically
-  };
-
-  const handleApprove = async (otpId: number) => {
-    // Không xử lý virtual records (ID âm)
-    if (otpId < 0) {
-      toast.error("Không thể xác nhận OTP bị khóa");
-      return;
-    }
-
-    if (!accountantName.trim()) {
-      toast.error("Vui lòng nhập tên kế toán trước khi xác nhận");
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from("otp_verifications")
-        .update({
-          approval_status: "approved",
-          approved_by: accountantName,
-          approved_at: new Date().toISOString(),
-        })
-        .eq("id", otpId);
-
-      if (error) throw error;
-
-      // Đợi một chút để đảm bảo database đã được cập nhật
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      await Promise.all([loadVerifiedOtps(), loadHistory()]);
-      toast.success("Đã xác nhận OTP thành công");
-    } catch (error: any) {
-      console.error("Error approving OTP:", error);
-      toast.error(error.message || "Không thể xác nhận OTP");
-    }
-  };
-
-  const handleReject = async (otpId: number) => {
-    // Không xử lý virtual records (ID âm)
-    if (otpId < 0) {
-      toast.error("Không thể từ chối OTP bị khóa");
-      return;
-    }
-
-    if (!accountantName.trim()) {
-      toast.error("Vui lòng nhập tên kế toán trước khi từ chối");
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from("otp_verifications")
-        .update({
-          approval_status: "rejected",
-          rejected_by: accountantName,
-          rejected_at: new Date().toISOString(),
-        })
-        .eq("id", otpId);
-
-      if (error) throw error;
-
-      // Đợi một chút để đảm bảo database đã được cập nhật
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      await Promise.all([loadVerifiedOtps(), loadHistory()]);
-      toast.success("Đã từ chối OTP");
-    } catch (error: any) {
-      console.error("Error rejecting OTP:", error);
-      toast.error(error.message || "Không thể từ chối OTP");
-    }
-  };
-
-  const filteredOtps = verifiedOtps.filter((otp) => {
-    const matchesEmail = otp.email.toLowerCase().includes(searchEmail.toLowerCase());
-    
-    if (filterCombined === "all") {
-      return matchesEmail;
-    }
-    
-    // Chỉ filter theo approval status (không có kết hợp)
-    return matchesEmail && otp.approvalStatus === filterCombined;
-  });
-
-  // Tính toán các trạng thái có sẵn trong dữ liệu (chỉ approval status đơn, không có kết hợp)
-  const getAvailableFilters = () => {
-    const filters = new Set<string>();
-    filters.add("all");
-
-    // Đếm số lượng OTP theo từng approval status
-    const statusCounts = new Map<string, number>();
-
-    verifiedOtps.forEach((otp) => {
-      // Chỉ đếm approval status đơn
-      const count = statusCounts.get(otp.approvalStatus) || 0;
-      statusCounts.set(otp.approvalStatus, count + 1);
-    });
-
-    // Chỉ thêm các trạng thái có ít nhất 1 OTP
-    statusCounts.forEach((count, status) => {
-      if (count > 0) {
-        filters.add(status);
-      }
-    });
-
-    return Array.from(filters);
-  };
-
-  const availableFilters = getAvailableFilters();
-
-  // Reset filter về "all" nếu filter hiện tại không còn trong danh sách có sẵn
-  useEffect(() => {
-    if (filterCombined !== "all" && !availableFilters.includes(filterCombined)) {
-      setFilterCombined("all");
-    }
-  }, [availableFilters, filterCombined]);
-
-  // Reset itemsToShow khi filter hoặc search thay đổi
-  useEffect(() => {
-    setItemsToShow(10);
-  }, [filterCombined, searchEmail]);
-
-  // Sắp xếp từ mới nhất đến cũ nhất
-  const sortedOtps = [...filteredOtps].sort((a, b) => {
-    // Sắp xếp từ mới nhất đến cũ nhất (theo verifiedAt)
-    return b.verifiedAt.getTime() - a.verifiedAt.getTime();
-  });
-
-  // Lấy số items để hiển thị
-  const displayedOtps = sortedOtps.slice(0, itemsToShow);
-  const hasMore = sortedOtps.length > itemsToShow;
-
-  const getFilterLabel = (filterValue: string) => {
-    if (filterValue === "all") return "Tất cả";
-    
-    const approvalLabels: Record<string, string> = {
-      pending: "Chờ xử lý",
-      approved: "Đã xác nhận",
-      rejected: "Đã từ chối",
-      expired: "Đã hết hạn",
-      locked: "Đã bị khóa",
-    };
-    
-    return approvalLabels[filterValue] || filterValue;
-  };
-
-  const pendingCount = verifiedOtps.filter((o) => o.approvalStatus === "pending").length;
-  const approvedCount = verifiedOtps.filter((o) => o.approvalStatus === "approved").length;
-  const rejectedCount = verifiedOtps.filter((o) => o.approvalStatus === "rejected").length;
-  const expiredCount = verifiedOtps.filter((o) => o.approvalStatus === "expired").length;
-  const lockedCount = verifiedOtps.filter((o) => o.approvalStatus === "locked").length;
-
-  const formatDateTime = (date: Date) => {
-    return new Intl.DateTimeFormat("vi-VN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }).format(date);
   };
 
   const getTimeRemaining = (expiresAt: Date) => {
@@ -790,31 +524,209 @@ const Accountant = () => {
     }
   };
 
-  const copyOtp = (otp: string) => {
-    navigator.clipboard.writeText(otp);
-    toast.success("Đã sao chép OTP");
+  const handleUpdateRole = async (userId: number, newRole: "admin" | "accountant" | "cs") => {
+    setUpdatingRoleUserId(userId);
+    try {
+      await userService.updateRole(userId, newRole);
+      toast.success("Đã cập nhật role thành công");
+      await loadUsers();
+    } catch (error: any) {
+      console.error("Error updating role:", error);
+      toast.error(error.message || "Không thể cập nhật role. Vui lòng thử lại.");
+    } finally {
+      setUpdatingRoleUserId(null);
+    }
   };
+
+  const getRoleBadgeColor = (role?: string) => {
+    switch (role) {
+      case "admin":
+        return "bg-purple-500 text-white";
+      case "accountant":
+        return "bg-blue-500 text-white";
+      case "cs":
+        return "bg-green-500 text-white";
+      default:
+        return "bg-gray-500 text-white";
+    }
+  };
+
+  // Filter OTPs by search email
+  const filteredOtps = searchEmail
+    ? otpRecords.filter((otp) =>
+        otp.email.toLowerCase().includes(searchEmail.toLowerCase())
+      )
+    : otpRecords;
+
+  // Filter verified OTPs
+  let filteredVerifiedOtps = verifiedOtps;
+  
+  // Filter by email
+  if (searchEmailVerified) {
+    filteredVerifiedOtps = filteredVerifiedOtps.filter((otp) =>
+      otp.email.toLowerCase().includes(searchEmailVerified.toLowerCase())
+    );
+  }
+
+  // Filter by status
+  if (filterCombined !== "all") {
+    filteredVerifiedOtps = filteredVerifiedOtps.filter(
+      (otp) => otp.approvalStatus === filterCombined
+    );
+  }
+
+  // Sort verified OTPs
+  const sortedVerifiedOtps = [...filteredVerifiedOtps].sort((a, b) => {
+    return b.verifiedAt.getTime() - a.verifiedAt.getTime();
+  });
+
+  // Pagination
+  const displayedVerifiedOtps = sortedVerifiedOtps.slice(0, itemsToShow);
+  const hasMoreVerified = sortedVerifiedOtps.length > itemsToShow;
+
+  // Counts for verified OTPs
+  const pendingCount = verifiedOtps.filter((o) => o.approvalStatus === "pending").length;
+  const approvedCount = verifiedOtps.filter((o) => o.approvalStatus === "approved").length;
+  const rejectedCount = verifiedOtps.filter((o) => o.approvalStatus === "rejected").length;
+  const expiredCount = verifiedOtps.filter((o) => o.approvalStatus === "expired").length;
+  const lockedCount = verifiedOtps.filter((o) => o.approvalStatus === "locked").length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/30">
       <Navigation />
-      <div className="container mx-auto px-4 py-12 max-w-6xl">
-        <div className="space-y-8">
-          {/* Phần Gửi OTP */}
-          <div className="grid lg:grid-cols-2 gap-8">
-            {/* OTP Form */}
-            <div>
-              <OtpForm onOtpSent={handleOtpSent} />
+      <div className="container mx-auto px-4 py-12 max-w-7xl">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <div className="mb-8 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <Shield className="w-6 h-6 text-primary" />
+              </div>
+              <h1 className="text-4xl font-bold">Quản trị hệ thống</h1>
             </div>
-
-            {/* OTP History */}
-            <div>
-              <OtpHistory history={otpHistory} onDelete={() => loadHistory()} isLoading={isLoadingHistory} />
-            </div>
+            <TabsList className="grid w-full max-w-md grid-cols-2 h-10">
+              <TabsTrigger value="users" className="flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Quản lý Users
+              </TabsTrigger>
+              <TabsTrigger value="verified" className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                OTP đã xác thực ({verifiedOtps.length})
+              </TabsTrigger>
+            </TabsList>
           </div>
 
-          {/* Phần Kiểm tra OTP */}
-          <div>
+          {/* Tab: User Management */}
+          <TabsContent value="users" className="space-y-6">
+            <CreateUserForm onUserCreated={loadUsers} />
+
+            {/* Users List */}
+            <Card className="shadow-lg border-border/50">
+              <CardHeader className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-accent/10">
+                      <Users className="w-5 h-5 text-accent" />
+                    </div>
+                    <CardTitle className="text-2xl">Danh sách Users</CardTitle>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={loadUsers}
+                    disabled={isLoadingUsers}
+                    size="sm"
+                  >
+                    {isLoadingUsers ? (
+                      <Loader2 className="w-4 h-4" />
+                    ) : (
+                      "Làm mới"
+                    )}
+                  </Button>
+                </div>
+                <CardDescription className="text-base">
+                  Tổng số: {users.length} users
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingUsers ? (
+                  <ScrollArea className="h-[400px] pr-4">
+                    <div className="space-y-3">
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <div key={i} className="p-4 rounded-lg border bg-card">
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <Skeleton className="h-4 w-48 mb-2" />
+                              <div className="flex items-center gap-4">
+                                <Skeleton className="h-3 w-32" />
+                                <Skeleton className="h-3 w-32" />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Skeleton className="h-6 w-20" />
+                              <Skeleton className="h-9 w-40" />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                ) : users.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-base">Chưa có user nào</p>
+                  </div>
+                ) : (
+                  <ScrollArea className="h-[400px] pr-4">
+                    <div className="space-y-3">
+                      {users.map((userItem) => (
+                        <div
+                          key={userItem.id}
+                          className="p-4 rounded-lg border bg-card"
+                        >
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-2">
+                                <p className="font-medium text-sm text-foreground truncate">
+                                  {userItem.email}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                <span>Tạo: {formatDateTime(userItem.created_at)}</span>
+                                {userItem.last_login && (
+                                  <span>Đăng nhập cuối: {formatDateTime(userItem.last_login)}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Badge className={getRoleBadgeColor(userItem.role)}>
+                                {userItem.role || "Chưa có role"}
+                              </Badge>
+                              <Select
+                                value={userItem.role || ""}
+                                onValueChange={(value) => handleUpdateRole(userItem.id, value as "admin" | "accountant" | "cs")}
+                                disabled={updatingRoleUserId === userItem.id}
+                              >
+                                <SelectTrigger className="w-40 h-9">
+                                  <SelectValue placeholder="Chọn role" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="admin">Admin</SelectItem>
+                                  <SelectItem value="accountant">Accountant</SelectItem>
+                                  <SelectItem value="cs">CS</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tab: Verified OTPs */}
+          <TabsContent value="verified" className="space-y-6">
             <Card className="shadow-lg border-border/50">
               <CardHeader className="space-y-3">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -829,75 +741,91 @@ const Accountant = () => {
                       <Input
                         type="text"
                         placeholder="Tìm kiếm theo email..."
-                        value={searchEmail}
-                        onChange={(e) => setSearchEmail(e.target.value)}
+                        value={searchEmailVerified}
+                        onChange={(e) => {
+                          setSearchEmailVerified(e.target.value);
+                          setItemsToShow(10); // Reset pagination
+                        }}
                         className="pl-10 h-10"
                       />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="accountantName" className="text-sm font-medium whitespace-nowrap">
-                      Tên kế toán:
-                    </Label>
-                    <Input
-                      id="accountantName"
-                      type="text"
-                      placeholder="Nhập tên của bạn"
-                      value={accountantName}
-                      onChange={(e) => {
-                        setAccountantName(e.target.value);
-                        localStorage.setItem("accountantName", e.target.value);
-                      }}
-                      className="h-10 w-48"
-                    />
-                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={loadVerifiedOtps}
+                    disabled={isLoadingVerified}
+                    size="sm"
+                  >
+                    {isLoadingVerified ? (
+                      <Loader2 className="w-4 h-4" />
+                    ) : (
+                      "Làm mới"
+                    )}
+                  </Button>
                 </div>
                 <CardDescription className="text-base">
                   <span 
                     className={`cursor-pointer hover:text-foreground ${filterCombined === "all" ? "text-primary font-semibold" : ""}`}
-                    onClick={() => setFilterCombined("all")}
+                    onClick={() => {
+                      setFilterCombined("all");
+                      setItemsToShow(10);
+                    }}
                   >
-                    Tổng số: {sortedOtps.length} OTP
+                    Tổng số: {sortedVerifiedOtps.length} OTP
                   </span>
                   {" | "}
                   <span 
                     className={`cursor-pointer hover:text-foreground ${filterCombined === "pending" ? "text-primary font-semibold" : ""}`}
-                    onClick={() => setFilterCombined("pending")}
+                    onClick={() => {
+                      setFilterCombined("pending");
+                      setItemsToShow(10);
+                    }}
                   >
                     Chờ xử lý: {pendingCount}
                   </span>
                   {" | "}
                   <span 
                     className={`cursor-pointer hover:text-foreground ${filterCombined === "approved" ? "text-primary font-semibold" : ""}`}
-                    onClick={() => setFilterCombined("approved")}
+                    onClick={() => {
+                      setFilterCombined("approved");
+                      setItemsToShow(10);
+                    }}
                   >
                     Đã xác nhận: {approvedCount}
                   </span>
                   {" | "}
                   <span 
                     className={`cursor-pointer hover:text-foreground ${filterCombined === "rejected" ? "text-primary font-semibold" : ""}`}
-                    onClick={() => setFilterCombined("rejected")}
+                    onClick={() => {
+                      setFilterCombined("rejected");
+                      setItemsToShow(10);
+                    }}
                   >
                     Đã từ chối: {rejectedCount}
                   </span>
                   {" | "}
                   <span 
                     className={`cursor-pointer hover:text-foreground ${filterCombined === "expired" ? "text-primary font-semibold" : ""}`}
-                    onClick={() => setFilterCombined("expired")}
+                    onClick={() => {
+                      setFilterCombined("expired");
+                      setItemsToShow(10);
+                    }}
                   >
                     Hết hạn: {expiredCount}
                   </span>
                   {" | "}
                   <span 
                     className={`cursor-pointer hover:text-foreground ${filterCombined === "locked" ? "text-primary font-semibold" : ""}`}
-                    onClick={() => setFilterCombined("locked")}
+                    onClick={() => {
+                      setFilterCombined("locked");
+                      setItemsToShow(10);
+                    }}
                   >
                     Bị khóa: {lockedCount}
                   </span>
                 </CardDescription>
               </CardHeader>
               <CardContent>
-
                 {/* OTP List */}
                 <div className="space-y-3">
                   {isLoadingVerified ? (
@@ -926,16 +854,16 @@ const Accountant = () => {
                         </div>
                       ))}
                     </>
-                  ) : sortedOtps.length === 0 ? (
+                  ) : sortedVerifiedOtps.length === 0 ? (
                     <div className="text-center py-12 text-muted-foreground">
                       <CheckCircle2 className="w-12 h-12 mx-auto mb-4 opacity-50" />
                       <p className="text-base">
-                        {searchEmail ? "Không tìm thấy OTP nào" : "Chưa có OTP nào được xác thực"}
+                        {searchEmailVerified ? "Không tìm thấy OTP nào" : "Chưa có OTP nào được xác thực"}
                       </p>
                     </div>
                   ) : (
                     <>
-                      {displayedOtps.map((otp) => (
+                      {displayedVerifiedOtps.map((otp) => (
                         <div
                           key={otp.id}
                           className={`p-3 rounded-lg border ${
@@ -1104,42 +1032,18 @@ const Accountant = () => {
                               </div>
                             )}
                           </div>
-
-                          {/* Action Buttons - Chỉ hiển thị cho verification thật (ID dương) */}
-                          {otp.approvalStatus === "pending" && otp.id > 0 && (
-                            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/50">
-                              <Button
-                                variant="default"
-                                size="sm"
-                                onClick={() => handleApprove(otp.id)}
-                                className="flex-1 h-8 text-xs bg-green-600 hover:bg-green-700 text-white"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                                Xác nhận
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => handleReject(otp.id)}
-                                className="flex-1 h-8 text-xs"
-                              >
-                                <XCircle className="w-3.5 h-3.5 mr-1.5" />
-                                Từ chối
-                              </Button>
-                            </div>
-                          )}
                         </div>
                       ))}
 
                       {/* Show More Button */}
-                      {hasMore && (
+                      {hasMoreVerified && (
                         <div className="mt-6 text-center">
                           <Button
                             variant="outline"
                             onClick={() => setItemsToShow((prev) => prev + itemsPerPage)}
                             className="w-full sm:w-auto"
                           >
-                            Xem thêm ({sortedOtps.length - itemsToShow} OTP còn lại)
+                            Xem thêm ({sortedVerifiedOtps.length - itemsToShow} OTP còn lại)
                           </Button>
                         </div>
                       )}
@@ -1148,17 +1052,12 @@ const Accountant = () => {
                 </div>
               </CardContent>
             </Card>
-          </div>
-        </div>
-
-        {/* Footer Info */}
-        <div className="mt-16 text-center text-sm text-muted-foreground">
-          <p>🔒 Tất cả thông tin được mã hóa và bảo mật</p>
-        </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
 };
 
-export default Accountant;
+export default Admin;
 

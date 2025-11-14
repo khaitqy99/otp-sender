@@ -14,10 +14,15 @@ export interface OtpRecord {
   expiresAt?: Date;
   lockedAt?: Date;
   failedAttemptsCount?: number;
+  errorCode?: string;
+  errorReason?: string;
+  hasNonPendingVerification?: boolean; // true nếu có verification với status khác "pending"
+  customerName?: string; // Tên khách hàng
 }
 
 const Index = () => {
   const [otpHistory, setOtpHistory] = useState<OtpRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     loadHistory();
@@ -63,6 +68,7 @@ const Index = () => {
   }, []);
 
   const loadHistory = async () => {
+    setIsLoading(true);
     try {
       // Tự động update expired cho các verification đang pending nhưng OTP đã hết hạn
       const { data: expiredVerifications } = await supabase
@@ -159,6 +165,8 @@ const Index = () => {
               lockedAt = new Date(failedAttempts[2].attempted_at);
             }
 
+            const hasNonPending = hasNonPendingVerification.get(record.id) === true;
+
             return {
               id: record.id,
               email: record.email,
@@ -168,6 +176,10 @@ const Index = () => {
               expiresAt: record.expires_at ? new Date(record.expires_at) : undefined,
               lockedAt: lockedAt,
               failedAttemptsCount: failedCount,
+              errorCode: record.error_code || undefined,
+              errorReason: record.error_reason || undefined,
+              hasNonPendingVerification: hasNonPending || false,
+              customerName: record.customer_name || undefined,
             };
           })
           // Chỉ hiển thị OTP chưa chuyển trạng thái
@@ -197,6 +209,8 @@ const Index = () => {
       }
     } catch (error) {
       console.error("Error loading history:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -230,7 +244,7 @@ const Index = () => {
 
           {/* OTP History */}
           <div>
-            <OtpHistory history={otpHistory} />
+            <OtpHistory history={otpHistory} onDelete={() => loadHistory()} isLoading={isLoading} />
           </div>
         </div>
 

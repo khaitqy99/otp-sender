@@ -144,6 +144,8 @@ serve(async (req) => {
       </html>
     `;
 
+    console.log(`Attempting to send email to ${email}`);
+    
     const { data, error } = await resend.emails.send({
       from: "Bộ phận Tài chính <finance@y99.vn>",
       to: [email],
@@ -151,15 +153,62 @@ serve(async (req) => {
       html: emailHtml,
     });
 
+    // Log full response để debug
+    console.log("Resend API response:", JSON.stringify({ data, error }, null, 2));
+
+    // Kiểm tra lỗi từ Resend API
     if (error) {
-      console.error("Resend API error:", error);
-      throw new Error(`Không thể gửi email: ${error.message}`);
+      console.error("Resend API error:", JSON.stringify(error, null, 2));
+      
+      // Xử lý các loại lỗi cụ thể
+      let errorMessage = "Không thể gửi email";
+      
+      if (error.message) {
+        // Kiểm tra các loại lỗi phổ biến
+        const errorMsg = error.message.toLowerCase();
+        
+        if (errorMsg.includes("permanently rejected") || 
+            errorMsg.includes("rejected") ||
+            errorMsg.includes("invalid") ||
+            errorMsg.includes("does not exist") ||
+            errorMsg.includes("not found")) {
+          errorMessage = `Email không tồn tại hoặc bị từ chối: ${email}. Vui lòng kiểm tra lại địa chỉ email.`;
+        } else if (errorMsg.includes("rate limit") || errorMsg.includes("too many")) {
+          errorMessage = "Đã vượt quá giới hạn gửi email. Vui lòng thử lại sau.";
+        } else if (errorMsg.includes("unauthorized") || errorMsg.includes("api key")) {
+          errorMessage = "Lỗi xác thực API. Vui lòng liên hệ quản trị viên.";
+        } else {
+          errorMessage = `Lỗi gửi email: ${error.message}`;
+        }
+      }
+      
+      throw new Error(errorMessage);
     }
 
-    console.log(`OTP sent successfully to ${email}`, data);
+    // Kiểm tra data response có hợp lệ không
+    if (!data) {
+      console.error("Resend API returned no data:", { data, error });
+      throw new Error("Không nhận được phản hồi từ dịch vụ gửi email. Vui lòng thử lại sau.");
+    }
+
+    // Resend API có thể trả về id hoặc email_id tùy version
+    const emailId = data.id || (data as any).email_id || null;
+    
+    if (!emailId) {
+      console.warn("Resend API response không có id:", JSON.stringify(data, null, 2));
+      // Vẫn cho phép tiếp tục nhưng log warning
+      console.log(`OTP sent to ${email} but no email ID returned from Resend`);
+    } else {
+      console.log(`OTP sent successfully to ${email}`, { emailId, email });
+    }
 
     return new Response(
-      JSON.stringify({ success: true, message: "OTP đã được gửi thành công" }),
+      JSON.stringify({ 
+        success: true, 
+        message: "OTP đã được gửi thành công",
+        emailId: emailId, // ID của email từ Resend để tracking (có thể null)
+        email: email
+      }),
       {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
