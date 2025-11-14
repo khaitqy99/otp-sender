@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Copy, XCircle, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Select,
   SelectContent,
@@ -56,6 +57,7 @@ interface VerifiedOtp {
 }
 
 const Accountant = () => {
+  const { user } = useAuth();
   const [otpHistory, setOtpHistory] = useState<OtpRecord[]>([]);
   const [verifiedOtps, setVerifiedOtps] = useState<VerifiedOtp[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
@@ -68,6 +70,18 @@ const Accountant = () => {
   const [accountantName, setAccountantName] = useState(() => {
     return localStorage.getItem("accountantName") || "";
   });
+
+  // Tự động lấy tên từ user hiện tại
+  useEffect(() => {
+    if (user?.name) {
+      setAccountantName(user.name);
+      localStorage.setItem("accountantName", user.name);
+    } else {
+      // Fallback: lấy từ localStorage nếu user chưa có name
+      const storedName = localStorage.getItem("accountantName") || "";
+      setAccountantName(storedName);
+    }
+  }, [user]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -619,8 +633,10 @@ const Accountant = () => {
       return;
     }
 
-    if (!accountantName.trim()) {
-      toast.error("Vui lòng nhập tên kế toán trước khi xác nhận");
+    // Tự động sử dụng tên từ user nếu có
+    const finalAccountantName = accountantName.trim() || user?.name || "";
+    if (!finalAccountantName) {
+      toast.error("Vui lòng nhập tên kế toán hoặc cập nhật tên trong tài khoản của bạn");
       return;
     }
 
@@ -629,7 +645,7 @@ const Accountant = () => {
         .from("otp_verifications")
         .update({
           approval_status: "approved",
-          approved_by: accountantName,
+          approved_by: finalAccountantName,
           approved_at: new Date().toISOString(),
         })
         .eq("id", otpId);
@@ -654,8 +670,10 @@ const Accountant = () => {
       return;
     }
 
-    if (!accountantName.trim()) {
-      toast.error("Vui lòng nhập tên kế toán trước khi từ chối");
+    // Tự động sử dụng tên từ user nếu có
+    const finalAccountantName = accountantName.trim() || user?.name || "";
+    if (!finalAccountantName) {
+      toast.error("Vui lòng nhập tên kế toán hoặc cập nhật tên trong tài khoản của bạn");
       return;
     }
 
@@ -664,7 +682,7 @@ const Accountant = () => {
         .from("otp_verifications")
         .update({
           approval_status: "rejected",
-          rejected_by: accountantName,
+          rejected_by: finalAccountantName,
           rejected_at: new Date().toISOString(),
         })
         .eq("id", otpId);
@@ -842,14 +860,21 @@ const Accountant = () => {
                     <Input
                       id="accountantName"
                       type="text"
-                      placeholder="Nhập tên của bạn"
+                      placeholder={user?.name ? user.name : "Nhập tên của bạn"}
                       value={accountantName}
                       onChange={(e) => {
                         setAccountantName(e.target.value);
                         localStorage.setItem("accountantName", e.target.value);
                       }}
-                      className="h-10 w-48"
+                      readOnly={!!user?.name}
+                      className="h-10 w-48 bg-muted/50"
+                      title={user?.name ? "Tên tự động lấy từ tài khoản của bạn" : ""}
                     />
+                    {user?.name && (
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        (Tự động)
+                      </span>
+                    )}
                   </div>
                 </div>
                 <CardDescription className="text-base">

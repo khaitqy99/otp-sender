@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Users, Mail, Lock, Loader2 } from "lucide-react";
+import { Users, Mail, Lock, Loader2, User } from "lucide-react";
 import { toast } from "sonner";
 import { userService } from "@/services/user-service";
 
@@ -21,6 +21,7 @@ interface CreateUserFormProps {
 export const CreateUserForm = ({ onUserCreated }: CreateUserFormProps) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [role, setRole] = useState<"admin" | "accountant" | "cs">("accountant");
   const [isCreating, setIsCreating] = useState(false);
 
@@ -42,13 +43,15 @@ export const CreateUserForm = ({ onUserCreated }: CreateUserFormProps) => {
         email: email.trim().toLowerCase(),
         password: password,
         role: role,
+        name: name.trim() || undefined,
       });
 
-      toast.success(`Đã tạo tài khoản thành công cho ${email} với role ${role}`);
+      toast.success(`Đã tạo tài khoản thành công cho ${name.trim() || email} với role ${role}`);
 
       // Reset form
       setEmail("");
       setPassword("");
+      setName("");
       setRole("accountant");
 
       if (onUserCreated) {
@@ -89,6 +92,25 @@ export const CreateUserForm = ({ onUserCreated }: CreateUserFormProps) => {
                 placeholder="user@y99.vn"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                disabled={isCreating}
+                className="h-12 text-base pl-10 focus:ring-2 focus:ring-primary/20"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <Label htmlFor="name" className="text-base font-medium">
+              Tên người dùng
+            </Label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-5 h-5" />
+              <Input
+                id="name"
+                type="text"
+                placeholder="Nhập tên người dùng"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 disabled={isCreating}
                 className="h-12 text-base pl-10 focus:ring-2 focus:ring-primary/20"
                 required
@@ -139,7 +161,7 @@ export const CreateUserForm = ({ onUserCreated }: CreateUserFormProps) => {
           <Button
             type="button"
             onClick={handleCreateUser}
-            disabled={isCreating || !email || !password}
+            disabled={isCreating || !email || !password || !name.trim()}
             className="w-full h-12 text-base font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-md"
           >
             {isCreating ? (

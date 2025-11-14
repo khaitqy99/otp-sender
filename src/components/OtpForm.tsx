@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Mail, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import type { OtpRecord } from "@/pages/Accountant";
 
 interface OtpFormProps {
@@ -13,12 +14,24 @@ interface OtpFormProps {
 }
 
 export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
+  const { user } = useAuth();
   const [email, setEmail] = useState("");
   const [customerName, setCustomerName] = useState("");
-  const [createdBy, setCreatedBy] = useState(() => {
-    return localStorage.getItem("accountantName") || "";
-  });
+  const [createdBy, setCreatedBy] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Tự động lấy tên từ user hiện tại
+  useEffect(() => {
+    if (user?.name) {
+      setCreatedBy(user.name);
+      // Vẫn lưu vào localStorage để tương thích với code cũ (nếu cần)
+      localStorage.setItem("accountantName", user.name);
+    } else {
+      // Fallback: lấy từ localStorage nếu user chưa có name
+      const storedName = localStorage.getItem("accountantName") || "";
+      setCreatedBy(storedName);
+    }
+  }, [user]);
 
   const generateOtp = () => {
     return Math.floor(100000 + Math.random() * 900000).toString();
@@ -151,15 +164,22 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
             <Input
               id="createdBy"
               type="text"
-              placeholder="Nhập tên của bạn"
+              placeholder={user?.name ? user.name : "Nhập tên của bạn"}
               value={createdBy}
               onChange={(e) => {
                 setCreatedBy(e.target.value);
                 localStorage.setItem("accountantName", e.target.value);
               }}
               disabled={isLoading}
-              className="h-12 text-base focus:ring-2 focus:ring-primary/20"
+              readOnly={!!user?.name}
+              className="h-12 text-base focus:ring-2 focus:ring-primary/20 bg-muted/50"
+              title={user?.name ? "Tên tự động lấy từ tài khoản của bạn" : ""}
             />
+            {user?.name && (
+              <p className="text-xs text-muted-foreground">
+                Tên tự động lấy từ tài khoản của bạn
+              </p>
+            )}
           </div>
           <div className="space-y-3">
             <Label htmlFor="customerName" className="text-base font-medium">

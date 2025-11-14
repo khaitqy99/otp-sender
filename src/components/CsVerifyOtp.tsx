@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle2, Loader2, UserCheck, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface OtpVerification {
   id: number;
@@ -24,6 +25,7 @@ interface OtpVerification {
 }
 
 export const CsVerifyOtp = () => {
+  const { user } = useAuth();
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [csName, setCsName] = useState("");
@@ -31,6 +33,13 @@ export const CsVerifyOtp = () => {
   const [verificationHistory, setVerificationHistory] = useState<OtpVerification[]>([]);
   const [itemsToShow, setItemsToShow] = useState(5); // Số items hiển thị ban đầu
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+
+  // Tự động lấy tên từ user hiện tại
+  useEffect(() => {
+    if (user?.name) {
+      setCsName(user.name);
+    }
+  }, [user]);
 
   // Load verification history from Supabase
   useEffect(() => {
@@ -102,8 +111,10 @@ export const CsVerifyOtp = () => {
       return;
     }
 
-    if (!csName.trim()) {
-      toast.error("Vui lòng nhập tên CS");
+    // Tự động sử dụng tên từ user nếu có
+    const finalCsName = csName.trim() || user?.name || "";
+    if (!finalCsName) {
+      toast.error("Vui lòng nhập tên CS hoặc cập nhật tên trong tài khoản của bạn");
       return;
     }
 
@@ -194,7 +205,7 @@ export const CsVerifyOtp = () => {
           otp_record_id: otpRecord.id,
           email: otpRecord.email,
           otp: otp,
-          verified_by: csName,
+          verified_by: finalCsName,
           verified_at: new Date().toISOString(),
           approval_status: "pending",
         })
@@ -240,13 +251,20 @@ export const CsVerifyOtp = () => {
               <Input
                 id="csName"
                 type="text"
-                placeholder="Nhập tên của bạn"
+                placeholder={user?.name ? user.name : "Nhập tên của bạn"}
                 value={csName}
                 onChange={(e) => setCsName(e.target.value)}
                 disabled={isLoading}
-                className="h-12 text-base focus:ring-2 focus:ring-primary/20"
-                required
+                readOnly={!!user?.name}
+                className="h-12 text-base focus:ring-2 focus:ring-primary/20 bg-muted/50"
+                required={!user?.name}
+                title={user?.name ? "Tên tự động lấy từ tài khoản của bạn" : ""}
               />
+              {user?.name && (
+                <p className="text-xs text-muted-foreground">
+                  Tên tự động lấy từ tài khoản của bạn
+                </p>
+              )}
             </div>
 
             <div className="space-y-3">
