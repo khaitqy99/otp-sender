@@ -1,38 +1,45 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { Resend } from "https://esm.sh/resend@4.0.0";
-
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
 };
-
-interface SendOtpRequest {
-  email: string;
-  otp: string;
-  customerName?: string; // Tên khách hàng (tùy chọn)
-}
-
-serve(async (req) => {
+serve(async (req)=>{
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, {
+      headers: corsHeaders
+    });
   }
-
   try {
-    const { email, otp, customerName }: SendOtpRequest = await req.json();
-
+    const { email, otp, customerName, expiryMinutes = 30 } = await req.json();
     if (!email || !otp) {
       throw new Error("Email và OTP là bắt buộc");
     }
-
     // Format OTP không có khoảng trắng (giữ nguyên)
     const formattedOtp = otp;
-    
     // Tên khách hàng hoặc mặc định
     const greeting = customerName ? `Chào Anh/Chị ${customerName},` : "Chào Anh/Chị,";
-
+    // Format thời gian hết hạn cho email
+    let expiryText = "";
+    if (expiryMinutes < 60) {
+      // Dưới 1 giờ: hiển thị bằng phút
+      expiryText = `${expiryMinutes} phút`;
+    } else {
+      // Từ 1 giờ trở lên: hiển thị bằng giờ và phút
+      const hours = Math.floor(expiryMinutes / 60);
+      const minutes = expiryMinutes % 60;
+      if (minutes === 0) {
+        // Chỉ có giờ, không có phút
+        expiryText = hours === 1 ? "1 giờ" : `${hours} giờ`;
+      } else {
+        // Có cả giờ và phút
+        const hoursText = hours === 1 ? "1 giờ" : `${hours} giờ`;
+        const minutesText = minutes === 1 ? "1 phút" : `${minutes} phút`;
+        expiryText = `${hoursText} ${minutesText}`;
+      }
+    }
     // Send email using Resend
     const emailHtml = `
       <!DOCTYPE html>
@@ -65,7 +72,7 @@ serve(async (req) => {
                     <!-- OTP Section -->
                     <div style="text-align: center; margin-bottom: 30px;">
                       <p style="font-size: 22px; color: #1e293b; margin: 0 0 8px 0; font-weight: 700; letter-spacing: 0.5px;">Mã OTP: ${formattedOtp}</p>
-                      <p style="font-size: 12px; color: #64748b; margin: 0;">(Lưu ý: Mã OTP chỉ có hiệu lực trong 30 phút)</p>
+                      <p style="font-size: 12px; color: #64748b; margin: 0;">(Lưu ý: Mã OTP chỉ có hiệu lực trong ${expiryText})</p>
                     </div>
                     
                     <!-- Warning Box -->
@@ -81,12 +88,9 @@ serve(async (req) => {
                     </p>
                     
                     <!-- Main Content -->
-                    <p style="font-size: 15px; color: #334155; margin: 0 0 16px 0; line-height: 1.7;">
-                      Chúc mừng hồ sơ vay của Anh/Chị tại <strong style="color: #1e293b;">Doanh Nghiệp Tư Nhân Y99</strong> đã được phê duyệt.
-                    </p>
                     
                     <p style="font-size: 15px; color: #334155; margin: 0 0 22px 0; line-height: 1.7;">
-                      Để xác thực địa chỉ email (dùng để gửi Hợp đồng vay sau khi giải ngân), Anh/Chị vui lòng đọc mã OTP ở trên cho <strong style="color: #1e293b;">Nhân viên Chăm sóc Khách hàng (CSKH)</strong> đang hỗ trợ.
+                      Để xác thực địa chỉ email (dùng để gửi Hợp đồng sau khi giải ngân), Anh/Chị vui lòng đọc mã OTP ở trên cho <strong style="color: #1e293b;">Nhân viên Chăm sóc Khách hàng (CSKH)</strong> đang hỗ trợ.
                     </p>
                     
                     <!-- Closing -->
@@ -143,35 +147,29 @@ serve(async (req) => {
       </body>
       </html>
     `;
-
     console.log(`Attempting to send email to ${email}`);
-    
     const { data, error } = await resend.emails.send({
       from: "Bộ phận Tài chính <finance@y99.vn>",
-      to: [email],
+      to: [
+        email
+      ],
       subject: "Xác thực Email - Mã OTP từ Doanh Nghiệp Tư Nhân Y99",
-      html: emailHtml,
+      html: emailHtml
     });
-
     // Log full response để debug
-    console.log("Resend API response:", JSON.stringify({ data, error }, null, 2));
-
+    console.log("Resend API response:", JSON.stringify({
+      data,
+      error
+    }, null, 2));
     // Kiểm tra lỗi từ Resend API
     if (error) {
       console.error("Resend API error:", JSON.stringify(error, null, 2));
-      
       // Xử lý các loại lỗi cụ thể
       let errorMessage = "Không thể gửi email";
-      
       if (error.message) {
         // Kiểm tra các loại lỗi phổ biến
         const errorMsg = error.message.toLowerCase();
-        
-        if (errorMsg.includes("permanently rejected") || 
-            errorMsg.includes("rejected") ||
-            errorMsg.includes("invalid") ||
-            errorMsg.includes("does not exist") ||
-            errorMsg.includes("not found")) {
+        if (errorMsg.includes("permanently rejected") || errorMsg.includes("rejected") || errorMsg.includes("invalid") || errorMsg.includes("does not exist") || errorMsg.includes("not found")) {
           errorMessage = `Email không tồn tại hoặc bị từ chối: ${email}. Vui lòng kiểm tra lại địa chỉ email.`;
         } else if (errorMsg.includes("rate limit") || errorMsg.includes("too many")) {
           errorMessage = "Đã vượt quá giới hạn gửi email. Vui lòng thử lại sau.";
@@ -181,47 +179,50 @@ serve(async (req) => {
           errorMessage = `Lỗi gửi email: ${error.message}`;
         }
       }
-      
       throw new Error(errorMessage);
     }
-
     // Kiểm tra data response có hợp lệ không
     if (!data) {
-      console.error("Resend API returned no data:", { data, error });
+      console.error("Resend API returned no data:", {
+        data,
+        error
+      });
       throw new Error("Không nhận được phản hồi từ dịch vụ gửi email. Vui lòng thử lại sau.");
     }
-
     // Resend API có thể trả về id hoặc email_id tùy version
-    const emailId = data.id || (data as any).email_id || null;
-    
+    const emailId = data.id || data.email_id || null;
     if (!emailId) {
       console.warn("Resend API response không có id:", JSON.stringify(data, null, 2));
       // Vẫn cho phép tiếp tục nhưng log warning
       console.log(`OTP sent to ${email} but no email ID returned from Resend`);
     } else {
-      console.log(`OTP sent successfully to ${email}`, { emailId, email });
+      console.log(`OTP sent successfully to ${email}`, {
+        emailId,
+        email
+      });
     }
-
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        message: "OTP đã được gửi thành công",
-        emailId: emailId, // ID của email từ Resend để tracking (có thể null)
-        email: email
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return new Response(JSON.stringify({
+      success: true,
+      message: "OTP đã được gửi thành công",
+      emailId: emailId,
+      email: email
+    }), {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json"
       }
-    );
-  } catch (error: any) {
+    });
+  } catch (error) {
     console.error("Error in send-otp function:", error);
-    return new Response(
-      JSON.stringify({ error: error.message || "Đã xảy ra lỗi khi gửi OTP" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return new Response(JSON.stringify({
+      error: error.message || "Đã xảy ra lỗi khi gửi OTP"
+    }), {
+      status: 500,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json"
       }
-    );
+    });
   }
 });

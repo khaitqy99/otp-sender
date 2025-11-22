@@ -28,7 +28,7 @@ interface OtpHistoryProps {
 
 export const OtpHistory = ({ history, onDelete, isLoading = false }: OtpHistoryProps) => {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [itemsToShow, setItemsToShow] = useState(3); // Số OTP hiển thị ban đầu
+  const [itemsToShow, setItemsToShow] = useState(5); // Số OTP hiển thị ban đầu
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -129,7 +129,7 @@ export const OtpHistory = ({ history, onDelete, isLoading = false }: OtpHistoryP
   const hasMore = allValidOtps.length > itemsToShow;
 
   return (
-    <Card className="shadow-lg border-border/50 h-full">
+    <Card className="shadow-lg border-border/50 h-full flex flex-col">
       <CardHeader className="space-y-3">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-accent/10">
@@ -141,11 +141,12 @@ export const OtpHistory = ({ history, onDelete, isLoading = false }: OtpHistoryP
           OTP vừa gửi
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-3 pt-0 flex-1 flex flex-col min-h-0">
         {isLoading ? (
-          <ScrollArea className="h-[300px] pr-4">
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
+          <div className="flex-1 min-h-0">
+            <ScrollArea className="h-full pr-4">
+              <div className="space-y-3">
+              {[1, 2, 3, 4, 5].map((i) => (
                 <div key={i} className="p-3 rounded-lg border bg-card">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="flex-1 min-w-0">
@@ -165,11 +166,13 @@ export const OtpHistory = ({ history, onDelete, isLoading = false }: OtpHistoryP
                   </div>
                 </div>
               ))}
-            </div>
-          </ScrollArea>
+              </div>
+            </ScrollArea>
+          </div>
         ) : validOtps.length > 0 ? (
-          <ScrollArea className="h-[300px] pr-4">
-            <div className="space-y-3">
+          <div className="flex-1 min-h-0">
+            <ScrollArea className="h-full pr-4">
+              <div className="space-y-3">
               {validOtps.map((otp) => (
                 <div key={otp.id} className="p-3 rounded-lg border bg-card">
                   {/* Header: Email, Time, Status */}
@@ -327,30 +330,31 @@ export const OtpHistory = ({ history, onDelete, isLoading = false }: OtpHistoryP
                   </div>
                 </div>
               ))}
+              {hasMore && (
+                <div className="mt-4 pt-4 border-t border-border/50">
+                  <Button
+                    variant="outline"
+                    onClick={() => setItemsToShow((prev) => prev + 3)}
+                    className="w-full"
+                  >
+                    Xem thêm ({allValidOtps.length - itemsToShow} OTP còn lại)
+                  </Button>
+                </div>
+              )}
+              {itemsToShow > 5 && (
+                <div className="mt-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setItemsToShow(5)}
+                    className="w-full text-xs"
+                  >
+                    Thu gọn
+                  </Button>
+                </div>
+              )}
             </div>
-            {hasMore && (
-              <div className="mt-4 pt-4 border-t border-border/50">
-                <Button
-                  variant="outline"
-                  onClick={() => setItemsToShow((prev) => prev + 3)}
-                  className="w-full"
-                >
-                  Xem thêm ({allValidOtps.length - itemsToShow} OTP còn lại)
-                </Button>
-              </div>
-            )}
-            {itemsToShow > 3 && (
-              <div className="mt-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => setItemsToShow(3)}
-                  className="w-full text-xs"
-                >
-                  Thu gọn
-                </Button>
-              </div>
-            )}
-          </ScrollArea>
+            </ScrollArea>
+          </div>
         ) : (
           <div className="text-center py-12 text-muted-foreground">
             <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />

@@ -18,6 +18,7 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
   const [email, setEmail] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [createdBy, setCreatedBy] = useState("");
+  const [expiryHours, setExpiryHours] = useState<string>("0.5"); // Mặc định 0.5 giờ (30 phút) - dùng string để cho phép nhập tự do
   const [isLoading, setIsLoading] = useState(false);
 
   // Tự động lấy tên từ user hiện tại
@@ -49,11 +50,16 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
     const otp = generateOtp();
 
     try {
+      // Chuyển đổi từ giờ sang phút để gửi đến function
+      const hoursValue = parseFloat(expiryHours) || 0.5;
+      const expiryMinutes = Math.round(hoursValue * 60);
+
       const { data, error } = await supabase.functions.invoke("send-otp", {
         body: { 
           email, 
           otp,
           customerName: customerName.trim() || undefined, // Gửi tên khách hàng nếu có
+          expiryMinutes: expiryMinutes, // Gửi thời gian hết hạn (phút)
         },
       });
 
@@ -76,7 +82,11 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
       const emailId = data?.emailId || null;
       console.log("Received response from send-otp:", { success: data.success, emailId, email });
 
-      // Save to Supabase với resend_email_id và customer_name
+      // Tính toán expires_at dựa trên số giờ (đã chuyển sang phút)
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + expiryMinutes * 60 * 1000);
+
+      // Save to Supabase với resend_email_id, customer_name và expires_at
       const { data: dbData, error: dbError } = await supabase
         .from("otp_records")
         .insert({
@@ -86,6 +96,7 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
           created_by: createdBy || null,
           resend_email_id: emailId, // Lưu email ID từ Resend để tracking (có thể null)
           customer_name: customerName.trim() || null, // Lưu tên khách hàng nếu có
+          expires_at: expiresAt.toISOString(), // Set thời gian hết hạn tùy chỉnh
         })
         .select()
         .single();
@@ -143,7 +154,7 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
   };
 
   return (
-    <Card className="shadow-lg border-border/50 h-full">
+    <Card className="shadow-lg border-border/50 h-full flex flex-col">
       <CardHeader className="space-y-3">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10">
@@ -155,7 +166,7 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
           Nhập email khách hàng để gửi mã xác thực OTP
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 flex flex-col">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-3">
             <Label htmlFor="createdBy" className="text-base font-medium">
@@ -209,6 +220,53 @@ export const OtpForm = ({ onOtpSent }: OtpFormProps) => {
               className="h-12 text-base focus:ring-2 focus:ring-primary/20"
               required
             />
+          </div>
+          <div className="space-y-3">
+            <Label htmlFor="expiryHours" className="text-base font-medium">
+              Thời gian hết hạn OTP (giờ)
+            </Label>
+            <Input
+              id="expiryHours"
+              type="number"
+              step="0.1"
+              placeholder="0.5"
+              value={expiryHours}
+              onChange={(e) => {
+                const inputValue = e.target.value;
+                // Cho phép nhập tự do (bao gồm rỗng để có thể xóa)
+                if (inputValue === "" || inputValue === ".") {
+                  setExpiryHours(inputValue);
+                  return;
+                }
+                const numValue = parseFloat(inputValue);
+                if (!isNaN(numValue)) {
+                  // Chỉ giới hạn nếu giá trị hợp lệ
+                  const clampedValue = Math.max(0.1, Math.min(24, numValue));
+                  setExpiryHours(clampedValue.toString());
+                } else {
+                  // Nếu không phải số, giữ nguyên giá trị cũ
+                  setExpiryHours(expiryHours);
+                }
+              }}
+              onBlur={(e) => {
+                // Khi blur, đảm bảo có giá trị hợp lệ
+                const numValue = parseFloat(e.target.value);
+                if (isNaN(numValue) || numValue < 0.1) {
+                  setExpiryHours("0.5");
+                } else if (numValue > 24) {
+                  setExpiryHours("24");
+                } else {
+                  setExpiryHours(numValue.toString());
+                }
+              }}
+              disabled={isLoading}
+              min={0.1}
+              max={24}
+              className="h-12 text-base focus:ring-2 focus:ring-primary/20 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+            />
+            <p className="text-xs text-muted-foreground">
+              Mã OTP sẽ hết hạn sau {parseFloat(expiryHours) || 0.5} giờ ({Math.round((parseFloat(expiryHours) || 0.5) * 60)} phút) - Mặc định: 0.5 giờ (30 phút)
+            </p>
           </div>
 
           <Button

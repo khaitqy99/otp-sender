@@ -11,10 +11,11 @@ function spaFallback(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url || "";
-        // Bỏ qua các file tĩnh và API routes
+        // Bỏ qua các file tĩnh, API routes, và Vite HMR resources
         if (
           url.startsWith("/assets") ||
           url.startsWith("/api") ||
+          url.startsWith("/@") || // Vite HMR resources (@vite/client, @react-refresh, etc.)
           (url.includes(".") && !url.endsWith(".html")) ||
           url === "/favicon.ico" ||
           url === "/robots.txt"

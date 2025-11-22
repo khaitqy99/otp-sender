@@ -236,14 +236,14 @@ const Index = () => {
         </div>
 
         {/* Main Content */}
-        <div className="grid lg:grid-cols-2 gap-8">
+        <div className="grid lg:grid-cols-2 gap-8 items-stretch">
           {/* OTP Form */}
-          <div>
+          <div className="h-full">
             <OtpForm onOtpSent={handleOtpSent} />
           </div>
 
           {/* OTP History */}
-          <div>
+          <div className="h-full">
             <OtpHistory history={otpHistory} onDelete={() => loadHistory()} isLoading={isLoading} />
           </div>
         </div>

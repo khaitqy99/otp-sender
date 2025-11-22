@@ -819,14 +819,14 @@ const Accountant = () => {
       <div className="container mx-auto px-4 py-12 max-w-6xl">
         <div className="space-y-8">
           {/* Phần Gửi OTP */}
-          <div className="grid lg:grid-cols-2 gap-8">
+          <div className="grid lg:grid-cols-2 gap-8 items-stretch">
             {/* OTP Form */}
-            <div>
+            <div className="h-full">
               <OtpForm onOtpSent={handleOtpSent} />
             </div>
 
             {/* OTP History */}
-            <div>
+            <div className="h-full">
               <OtpHistory history={otpHistory} onDelete={() => loadHistory()} isLoading={isLoadingHistory} />
             </div>
           </div>
