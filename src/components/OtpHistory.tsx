@@ -205,9 +205,14 @@ export const OtpHistory = ({ history, onDelete, isLoading = false }: OtpHistoryP
                       {otp.status === "failed" && otp.errorCode ? (
                         <Badge
                           variant="outline"
-                          className="font-mono text-sm px-2 py-1 bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400"
+                          className="text-sm px-2 py-1 bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400"
+                          title={otp.errorCode}
                         >
-                          {otp.errorCode}
+                          {otp.errorCode === "550" || otp.errorCode === "FAILED" || otp.errorCode === "BOUNCED" 
+                            ? "Bị từ chối" 
+                            : otp.errorCode === "COMPLAINED" 
+                            ? "Bị báo spam" 
+                            : otp.errorCode}
                         </Badge>
                       ) : (
                         <Badge

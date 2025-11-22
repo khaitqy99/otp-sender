@@ -220,6 +220,10 @@ serve(async (req) => {
         let errorCode: string | null = null;
         let errorReason: string | null = null;
 
+        // Xử lý các loại events
+        const eventType = event.type || event.event || event.name || event.event_type;
+        console.log(`Event ${i + 1}: Processing event type: ${eventType}`);
+    
         // Hàm dịch error message sang tiếng Việt
         const translateErrorToVietnamese = (errorCode: string, originalReason: string): string => {
           const errorCodeUpper = errorCode.toUpperCase();
@@ -257,10 +261,6 @@ serve(async (req) => {
           return "Email không thể gửi được. Vui lòng kiểm tra lại địa chỉ email.";
         };
 
-        // Xử lý các loại events
-        const eventType = event.type || event.event || event.name || event.event_type;
-        console.log(`Event ${i + 1}: Processing event type: ${eventType}`);
-    
         switch (eventType) {
           case "email.failed":
           case "email.bounced":

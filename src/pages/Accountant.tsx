@@ -54,6 +54,8 @@ interface VerifiedOtp {
   rejectedAt?: Date;
   otpRecordId?: number;
   customerName?: string; // Tên khách hàng từ otp_records
+  errorCode?: string; // Error code từ Resend khi email bị bounce
+  errorReason?: string; // Lý do chi tiết từ Resend khi email bị bounce
 }
 
 const Accountant = () => {
@@ -279,7 +281,9 @@ const Accountant = () => {
               created_by,
               status,
               expires_at,
-              customer_name
+              customer_name,
+              error_code,
+              error_reason
             )
           `)
           .order("verified_at", { ascending: false })
@@ -383,6 +387,8 @@ const Accountant = () => {
                 status: record.status,
                 expires_at: record.expires_at,
                 customer_name: record.customer_name,
+                error_code: record.error_code,
+                error_reason: record.error_reason,
               },
             };
 
@@ -463,6 +469,8 @@ const Accountant = () => {
                 status: record.status,
                 expires_at: record.expires_at,
                 customer_name: record.customer_name,
+                error_code: record.error_code,
+                error_reason: record.error_reason,
               },
             };
 
@@ -554,6 +562,8 @@ const Accountant = () => {
               rejectedBy: v.rejected_by,
               rejectedAt: v.rejected_at ? new Date(v.rejected_at) : undefined,
               customerName: v.otp_records?.customer_name || undefined,
+              errorCode: v.otp_records?.error_code || undefined,
+              errorReason: v.otp_records?.error_reason || undefined,
             };
           })
         );
@@ -1091,6 +1101,24 @@ const Accountant = () => {
                                     : "text-red-600 dark:text-red-400"
                                 }`}>
                                   <span className="font-medium">OTP:</span> {otp.otpStatus === "success" ? "Thành công" : "Thất bại"}
+                                  {otp.otpStatus === "failed" && otp.errorCode && (
+                                    <span className="ml-1 text-xs opacity-75">
+                                      ({otp.errorCode === "550" || otp.errorCode === "FAILED" || otp.errorCode === "BOUNCED" 
+                                        ? "Bị từ chối" 
+                                        : otp.errorCode === "COMPLAINED" 
+                                        ? "Bị báo spam" 
+                                        : otp.errorCode})
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                            )}
+                            {/* Hiển thị error reason khi OTP failed */}
+                            {otp.otpStatus === "failed" && otp.errorReason && (
+                              <div className="flex items-start gap-1.5 col-span-2">
+                                <AlertCircle className="w-3 h-3 text-red-500 flex-shrink-0 mt-0.5" />
+                                <p className="text-red-600 dark:text-red-400 text-xs">
+                                  <span className="font-medium">Lý do:</span> {otp.errorReason}
                                 </p>
                               </div>
                             )}

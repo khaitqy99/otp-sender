@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Webhook Resend</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .container {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            border-radius: 4px;
+            border: 1px solid #444;
+        }
+        input {
+            background: #2a2a2a;
+            color: #fff;
+            width: 300px;
+        }
+        button {
+            background: #3b82f6;
+            color: #fff;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #1a1a1a;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success {
+            color: #10b981;
+        }
+        .error {
+            color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test Webhook Resend</h1>
+        <p>Nhập thông tin để test webhook:</p>
+        
+        <div>
+            <label>Resend Email ID:</label><br>
+            <input type="text" id="emailId" value="88c5d2c2-2924-4a7e-acaf-405d2dc75270" placeholder="resend_email_id">
+        </div>
+        
+        <div>
+            <label>Email:</label><br>
+            <input type="email" id="email" value="test@nonexistent123.com" placeholder="email">
+        </div>
+        
+        <div>
+            <button onclick="testWebhook()">🚀 Test Webhook</button>
+            <button onclick="checkStatus()">📊 Kiểm tra Status</button>
+        </div>
+        
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        const WEBHOOK_URL = 'https://xeliuljgfwjygzdumzyv.supabase.co/functions/v1/webhook';
+        
+        async function testWebhook() {
+            const emailId = document.getElementById('emailId').value;
+            const email = document.getElementById('email').value;
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.textContent = 'Đang gửi webhook request...';
+            resultDiv.className = 'result';
+            
+            const payload = {
+                type: "email.failed",
+                created_at: new Date().toISOString(),
+                data: {
+                    email_id: emailId,
+                    from: "finance@y99.vn",
+                    to: [email],
+                    subject: "Xác thực Email - Mã OTP từ Doanh Nghiệp Tư Nhân Y99",
+                    created_at: new Date().toISOString(),
+                    error: {
+                        code: "550",
+                        message: "The recipient's mail server permanently rejected the email."
+                    },
+                    reason: "The recipient's mail server permanently rejected the email."
+                }
+            };
+            
+            try {
+                const response = await fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ Webhook đã được gửi thành công!\n\nResponse:\n${JSON.stringify(data, null, 2)}\n\n📋 Bây giờ hãy:\n1. Kiểm tra logs trong Supabase Dashboard → Edge Functions → resend-webhook → Logs\n2. Chạy query SQL để xem status có được cập nhật không`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Lỗi khi gửi request:\n${error.message}\n\n💡 Gợi ý:\n- Kiểm tra kết nối internet\n- Thử dùng PowerShell script: .\\test-webhook-now.ps1\n- Hoặc kiểm tra logs trực tiếp trong Supabase Dashboard`;
+            }
+        }
+        
+        function checkStatus() {
+            const emailId = document.getElementById('emailId').value;
+            const email = document.getElementById('email').value;
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.className = 'result';
+            resultDiv.textContent = `📋 Query SQL để kiểm tra status:\n\nSELECT \n  id,\n  email,\n  status,\n  resend_email_id,\n  error_code,\n  error_reason,\n  created_at\nFROM otp_records\nWHERE email = '${email}'\n  OR resend_email_id = '${emailId}'\nORDER BY created_at DESC\nLIMIT 1;\n\nChạy query này trong Supabase SQL Editor để xem kết quả.`;
+        }
+    </script>
+</body>
+</html>
+
