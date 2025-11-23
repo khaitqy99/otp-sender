@@ -276,7 +276,7 @@ export const CsVerifyOtp = () => {
                 type="email"
                 placeholder="customer@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => setEmail(e.target.value.toLowerCase())}
                 disabled={isLoading}
                 className="h-12 text-base focus:ring-2 focus:ring-primary/20"
                 required
