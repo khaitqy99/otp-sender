@@ -141,6 +141,24 @@ export const userService = {
   },
 
   /**
+   * Đặt lại mật khẩu (plain text như luồng tạo user / demo)
+   */
+  async updatePassword(userId: number, newPassword: string): Promise<void> {
+    if (!newPassword || newPassword.length < 6) {
+      throw new Error('Mật khẩu phải có ít nhất 6 ký tự');
+    }
+
+    const { error } = await supabase
+      .from('users')
+      .update({ password_hash: newPassword })
+      .eq('id', userId);
+
+    if (error) {
+      throw new Error(error.message || 'Không thể đổi mật khẩu');
+    }
+  },
+
+  /**
    * Cập nhật user
    */
   async update(id: number, updates: Partial<User>): Promise<User> {

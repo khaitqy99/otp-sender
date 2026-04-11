@@ -47,6 +47,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useAuth } from "@/contexts/AuthContext";
 
 import type { User } from "@/services/user-service";
 
@@ -84,12 +93,18 @@ interface VerifiedOtp {
 }
 
 const Admin = () => {
+  const { user: currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState("users");
   
   // User management state
   const [users, setUsers] = useState<User[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [updatingRoleUserId, setUpdatingRoleUserId] = useState<number | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
+  const [passwordDialogUser, setPasswordDialogUser] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
 
   // OTP management state
   const [otpRecords, setOtpRecords] = useState<OtpRecord[]>([]);
@@ -538,6 +553,62 @@ const Admin = () => {
     }
   };
 
+  const openPasswordDialog = (u: User) => {
+    setSavingPassword(false);
+    setPasswordDialogUser(u);
+    setNewPassword("");
+    setConfirmPassword("");
+  };
+
+  const closePasswordDialog = () => {
+    setPasswordDialogUser(null);
+    setNewPassword("");
+    setConfirmPassword("");
+    setSavingPassword(false);
+  };
+
+  const handleSavePassword = async () => {
+    if (!passwordDialogUser) return;
+    if (newPassword !== confirmPassword) {
+      toast.error("Mật khẩu xác nhận không khớp");
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      await userService.updatePassword(passwordDialogUser.id, newPassword);
+      toast.success("Đã đổi mật khẩu");
+      closePasswordDialog();
+    } catch (error: any) {
+      console.error("Error updating password:", error);
+      toast.error(error.message || "Không thể đổi mật khẩu");
+      setSavingPassword(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId: number) => {
+    if (currentUser?.id === userId) {
+      toast.error("Không thể xóa chính tài khoản đang đăng nhập");
+      return;
+    }
+    const adminCount = users.filter((u) => u.role === "admin").length;
+    const target = users.find((u) => u.id === userId);
+    if (target?.role === "admin" && adminCount <= 1) {
+      toast.error("Không thể xóa admin cuối cùng của hệ thống");
+      return;
+    }
+    setDeletingUserId(userId);
+    try {
+      await userService.delete(userId);
+      toast.success("Đã vô hiệu hóa tài khoản");
+      await loadUsers();
+    } catch (error: any) {
+      console.error("Error deleting user:", error);
+      toast.error(error.message || "Không thể xóa user");
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
   const getRoleBadgeColor = (role?: string) => {
     switch (role) {
       case "admin":
@@ -594,6 +665,55 @@ const Admin = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/30">
       <Navigation />
+      <Dialog
+        open={!!passwordDialogUser}
+        onOpenChange={(open) => {
+          if (!open) closePasswordDialog();
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Đổi mật khẩu</DialogTitle>
+            <DialogDescription>
+              {passwordDialogUser
+                ? `Đặt mật khẩu mới cho ${passwordDialogUser.email}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <Label htmlFor="admin-new-password">Mật khẩu mới</Label>
+              <Input
+                id="admin-new-password"
+                type="password"
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Tối thiểu 6 ký tự"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="admin-confirm-password">Xác nhận mật khẩu</Label>
+              <Input
+                id="admin-confirm-password"
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Nhập lại mật khẩu"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={closePasswordDialog} disabled={savingPassword}>
+              Hủy
+            </Button>
+            <Button type="button" onClick={handleSavePassword} disabled={savingPassword}>
+              {savingPassword ? <Loader2 className="w-4 h-4 animate-spin" /> : "Lưu mật khẩu"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="container mx-auto px-4 py-12 max-w-7xl">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <div className="mb-8 flex items-center justify-between gap-4 flex-wrap">
@@ -682,7 +802,7 @@ const Admin = () => {
                           key={userItem.id}
                           className="p-4 rounded-lg border bg-card"
                         >
-                          <div className="flex items-center justify-between gap-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-2">
                                 <p className="font-medium text-sm text-foreground truncate">
@@ -696,7 +816,7 @@ const Admin = () => {
                                 )}
                               </div>
                             </div>
-                            <div className="flex items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                               <Badge className={getRoleBadgeColor(userItem.role)}>
                                 {userItem.role || "Chưa có role"}
                               </Badge>
@@ -714,6 +834,59 @@ const Admin = () => {
                                   <SelectItem value="cs">CS</SelectItem>
                                 </SelectContent>
                               </Select>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-9"
+                                onClick={() => openPasswordDialog(userItem)}
+                                disabled={deletingUserId === userItem.id}
+                              >
+                                <Lock className="w-4 h-4 mr-1.5" />
+                                Đổi MK
+                              </Button>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="sm"
+                                    className="h-9"
+                                    disabled={
+                                      deletingUserId === userItem.id ||
+                                      currentUser?.id === userItem.id ||
+                                      (userItem.role === "admin" &&
+                                        users.filter((u) => u.role === "admin").length <= 1)
+                                    }
+                                  >
+                                    {deletingUserId === userItem.id ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <>
+                                        <Trash2 className="w-4 h-4 mr-1.5" />
+                                        Xóa
+                                      </>
+                                    )}
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Xóa tài khoản?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Tài khoản {userItem.email} sẽ bị vô hiệu hóa và không thể đăng nhập. Bạn có chắc chắn?
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Hủy</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      onClick={() => handleDeleteUser(userItem.id)}
+                                    >
+                                      Xóa
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
                             </div>
                           </div>
                         </div>
